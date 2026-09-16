@@ -2182,12 +2182,15 @@ describe("OpenCodeThreadController", () => {
   });
 
   it.each([
-    { kind: "permission", id: "perm_1" },
-    { kind: "question", id: "q_1" },
-    { kind: "reject", id: "q_2" },
+    { kind: "permission", id: "perm_1", snapshotFirst: true },
+    { kind: "question", id: "q_1", snapshotFirst: true },
+    { kind: "reject", id: "q_2", snapshotFirst: true },
+    { kind: "permission", id: "perm_1", snapshotFirst: false },
+    { kind: "question", id: "q_1", snapshotFirst: false },
+    { kind: "reject", id: "q_2", snapshotFirst: false },
   ] as const)(
-    "keeps a $kind answer that settles after the reconnect snapshot",
-    async ({ kind, id }) => {
+    "keeps a $kind answer when snapshotFirst is $snapshotFirst",
+    async ({ kind, id, snapshotFirst }) => {
       const eventSource = createEventSource();
       const list = createDeferred<{ data: unknown[] }>();
       const answer = createDeferred<unknown>();
@@ -2216,26 +2219,20 @@ describe("OpenCodeThreadController", () => {
       );
       controller.subscribe(vi.fn());
 
-      eventSource.emit(
-        (isPermission
-          ? {
-              type: "permission.asked",
-              sessionId: "ses_1",
-              properties: {
-                id,
-                sessionID: "ses_1",
-                permission: "fs.write",
-                metadata: {},
-              },
-              raw: {},
-            }
-          : {
-              type: "question.asked",
-              sessionId: "ses_1",
-              properties: { id, sessionID: "ses_1", questions: [] },
-              raw: {},
-            }) as never,
-      );
+      const request = isPermission
+        ? {
+            id,
+            sessionID: "ses_1",
+            permission: "fs.write",
+            metadata: {},
+          }
+        : { id, sessionID: "ses_1", questions: [] };
+      eventSource.emit({
+        type: isPermission ? "permission.asked" : "question.asked",
+        sessionId: "ses_1",
+        properties: request,
+        raw: {},
+      } as never);
 
       eventSource.emit(streamReconnected);
       await vi.waitFor(() =>
@@ -2252,12 +2249,17 @@ describe("OpenCodeThreadController", () => {
             ? controller.replyToQuestion(id, [] as never)
             : controller.rejectQuestion(id);
 
-      // The server already dropped the request, so the snapshot is empty.
-      list.resolve({ data: [] });
-      await list.promise;
-
-      answer.resolve({ data: {} });
-      await answering;
+      if (snapshotFirst) {
+        list.resolve({ data: [] });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        answer.resolve({ data: {} });
+        await answering;
+      } else {
+        answer.resolve({ data: {} });
+        await answering;
+        list.resolve({ data: [request] });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
 
       const interactions = controller.getState().interactions;
       const settled =
