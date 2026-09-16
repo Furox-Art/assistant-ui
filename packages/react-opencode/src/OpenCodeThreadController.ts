@@ -46,6 +46,11 @@ type ChildControllerEntry = {
   unsubscribe: (() => void) | null;
 };
 
+type InteractionRecoveryTarget = {
+  controller: OpenCodeThreadController;
+  interactionRevision: number;
+};
+
 const getTextContent = (parts: readonly ThreadUserMessagePart[]) =>
   serializeOpenCodeParts(parts).trim();
 
@@ -535,13 +540,84 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
     });
   }
 
+  private collectInteractionRecoveryTargets(
+    targets = new Map<string, InteractionRecoveryTarget>(),
+  ) {
+    targets.set(this.sessionId, {
+      controller: this,
+      interactionRevision: this.interactionRevision,
+    });
+    for (const entry of this.childControllersById.values()) {
+      entry.controller.collectInteractionRecoveryTargets(targets);
+    }
+    return targets;
+  }
+
+  private reconcilePermissions(
+    items: readonly PermissionRequest[],
+    interactionRevision: number,
+  ) {
+    const pending: Record<string, OpenCodePermissionRequest> =
+      Object.create(null);
+    for (const item of items) {
+      const request = toPermissionRequest(item);
+      if (!request || request.sessionId !== this.sessionId) continue;
+      if (this.repliesInFlight.has(request.id)) continue;
+      if (
+        (this.permissionRevisionById.get(request.id) ?? 0) > interactionRevision
+      )
+        continue;
+      pending[request.id] = request;
+    }
+    for (const [id, request] of Object.entries(
+      this.state.interactions.permissions.pending,
+    )) {
+      if (
+        (this.permissionRevisionById.get(id) ?? 0) > interactionRevision ||
+        this.repliesInFlight.has(id)
+      ) {
+        pending[id] = request;
+      }
+    }
+    this.dispatch({ type: "permissions.reconciled", pending });
+  }
+
+  private reconcileQuestions(
+    items: readonly QuestionRequest[],
+    interactionRevision: number,
+  ) {
+    const pending: Record<string, OpenCodeQuestionRequest> =
+      Object.create(null);
+    for (const item of items) {
+      const request = toQuestionRequest(item);
+      if (!request || request.sessionID !== this.sessionId) continue;
+      if (this.repliesInFlight.has(request.id)) continue;
+      if (
+        (this.questionRevisionById.get(request.id) ?? 0) > interactionRevision
+      )
+        continue;
+      pending[request.id] = request;
+    }
+    for (const [id, request] of Object.entries(
+      this.state.interactions.questions.pending,
+    )) {
+      if (
+        (this.questionRevisionById.get(id) ?? 0) > interactionRevision ||
+        this.repliesInFlight.has(id)
+      ) {
+        pending[id] = request;
+      }
+    }
+    this.dispatch({ type: "questions.reconciled", pending });
+  }
+
   private handleStreamReconnect() {
     this.refreshInBackground();
     const token = ++this.reconnectSyncToken;
     const activityRevision = this.activityRevision;
-    const interactionRevision = this.interactionRevision;
 
     if (this.isChildSession) return;
+    const interactionRecoveryTargets = this.collectInteractionRecoveryTargets();
 
     void this.client.session
       .status(undefined, OPEN_CODE_REQUEST_OPTIONS)
@@ -566,30 +642,12 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
       .catch(() => null)
       .then((response) => {
         if (!response || token !== this.reconnectSyncToken) return;
-        const pending: Record<string, OpenCodePermissionRequest> =
-          Object.create(null);
-        for (const item of response.data ?? []) {
-          const request = toPermissionRequest(item);
-          if (!request || request.sessionId !== this.sessionId) continue;
-          if (this.repliesInFlight.has(request.id)) continue;
-          if (
-            (this.permissionRevisionById.get(request.id) ?? 0) >
-            interactionRevision
-          )
-            continue;
-          pending[request.id] = request;
+        for (const target of interactionRecoveryTargets.values()) {
+          target.controller.reconcilePermissions(
+            response.data ?? [],
+            target.interactionRevision,
+          );
         }
-        for (const [id, request] of Object.entries(
-          this.state.interactions.permissions.pending,
-        )) {
-          if (
-            (this.permissionRevisionById.get(id) ?? 0) > interactionRevision ||
-            this.repliesInFlight.has(id)
-          ) {
-            pending[id] = request;
-          }
-        }
-        this.dispatch({ type: "permissions.reconciled", pending });
       });
 
     void this.client.question
@@ -597,30 +655,12 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
       .catch(() => null)
       .then((response) => {
         if (!response || token !== this.reconnectSyncToken) return;
-        const pending: Record<string, OpenCodeQuestionRequest> =
-          Object.create(null);
-        for (const item of response.data ?? []) {
-          const request = toQuestionRequest(item);
-          if (!request || request.sessionID !== this.sessionId) continue;
-          if (this.repliesInFlight.has(request.id)) continue;
-          if (
-            (this.questionRevisionById.get(request.id) ?? 0) >
-            interactionRevision
-          )
-            continue;
-          pending[request.id] = request;
+        for (const target of interactionRecoveryTargets.values()) {
+          target.controller.reconcileQuestions(
+            response.data ?? [],
+            target.interactionRevision,
+          );
         }
-        for (const [id, request] of Object.entries(
-          this.state.interactions.questions.pending,
-        )) {
-          if (
-            (this.questionRevisionById.get(id) ?? 0) > interactionRevision ||
-            this.repliesInFlight.has(id)
-          ) {
-            pending[id] = request;
-          }
-        }
-        this.dispatch({ type: "questions.reconciled", pending });
       });
   }
 
