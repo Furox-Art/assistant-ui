@@ -1,5 +1,15 @@
 # assistant-ui
 
+## 0.0.117
+
+### Patch Changes
+
+- [#7370](https://github.com/assistant-ui/assistant-ui/pull/7370) [`b7f9a96`](https://github.com/assistant-ui/assistant-ui/commit/b7f9a960dda7c7548ac1ebdf3bae368fe28bcbfc) - chore: update dependencies ([@Yonom](https://github.com/Yonom))
+
+- [#7338](https://github.com/assistant-ui/assistant-ui/pull/7338) [`11969a2`](https://github.com/assistant-ui/assistant-ui/commit/11969a219201f49eb42a76d05e9f3cc787c5f025) - docs: teach `AuiConfig` and the provider `config` prop instead of the deprecated `useAui({...})` overload in docblocks and the agent skill ([@L4XB](https://github.com/L4XB))
+- Updated dependencies [[`b7f9a96`](https://github.com/assistant-ui/assistant-ui/commit/b7f9a960dda7c7548ac1ebdf3bae368fe28bcbfc)]:
+  - @assistant-ui/agent-launcher@0.1.16
+
 ## 0.0.116
 
 ### Patch Changes
