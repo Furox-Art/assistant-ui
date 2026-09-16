@@ -302,9 +302,8 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
   private loadPromise: Promise<void> | null = null;
   private historySyncWindow: HistorySyncWindow | null = null;
   private activityRevision = 0;
-  private permissionRevision = 0;
+  private interactionRevision = 0;
   private readonly permissionRevisionById = new Map<string, number>();
-  private questionRevision = 0;
   private readonly questionRevisionById = new Map<string, number>();
   private readonly repliesInFlight = new Map<string, number>();
 
@@ -316,6 +315,14 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
     const remaining = (this.repliesInFlight.get(id) ?? 0) - 1;
     if (remaining > 0) this.repliesInFlight.set(id, remaining);
     else this.repliesInFlight.delete(id);
+  }
+
+  private fencePermission(id: string) {
+    this.permissionRevisionById.set(id, ++this.interactionRevision);
+  }
+
+  private fenceQuestion(id: string) {
+    this.questionRevisionById.set(id, ++this.interactionRevision);
   }
   private backgroundRefreshQueued = false;
   private reconnectSyncToken = 0;
@@ -532,8 +539,7 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
     this.refreshInBackground();
     const token = ++this.reconnectSyncToken;
     const activityRevision = this.activityRevision;
-    const permissionRevision = this.permissionRevision;
-    const questionRevision = this.questionRevision;
+    const interactionRevision = this.interactionRevision;
 
     if (this.isChildSession) return;
 
@@ -568,7 +574,7 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
           if (this.repliesInFlight.has(request.id)) continue;
           if (
             (this.permissionRevisionById.get(request.id) ?? 0) >
-            permissionRevision
+            interactionRevision
           )
             continue;
           pending[request.id] = request;
@@ -577,7 +583,7 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
           this.state.interactions.permissions.pending,
         )) {
           if (
-            (this.permissionRevisionById.get(id) ?? 0) > permissionRevision ||
+            (this.permissionRevisionById.get(id) ?? 0) > interactionRevision ||
             this.repliesInFlight.has(id)
           ) {
             pending[id] = request;
@@ -598,7 +604,8 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
           if (!request || request.sessionID !== this.sessionId) continue;
           if (this.repliesInFlight.has(request.id)) continue;
           if (
-            (this.questionRevisionById.get(request.id) ?? 0) > questionRevision
+            (this.questionRevisionById.get(request.id) ?? 0) >
+            interactionRevision
           )
             continue;
           pending[request.id] = request;
@@ -607,7 +614,7 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
           this.state.interactions.questions.pending,
         )) {
           if (
-            (this.questionRevisionById.get(id) ?? 0) > questionRevision ||
+            (this.questionRevisionById.get(id) ?? 0) > interactionRevision ||
             this.repliesInFlight.has(id)
           ) {
             pending[id] = request;
@@ -888,8 +895,7 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
         OPEN_CODE_REQUEST_OPTIONS,
       );
 
-      this.permissionRevision += 1;
-      this.permissionRevisionById.set(permissionId, this.permissionRevision);
+      this.fencePermission(permissionId);
       this.dispatch({
         type: "permission.replied",
         permissionId,
@@ -914,8 +920,7 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
         OPEN_CODE_REQUEST_OPTIONS,
       );
 
-      this.questionRevision += 1;
-      this.questionRevisionById.set(questionId, this.questionRevision);
+      this.fenceQuestion(questionId);
       this.dispatch({
         type: "question.replied",
         questionId,
@@ -936,8 +941,7 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
         OPEN_CODE_REQUEST_OPTIONS,
       );
 
-      this.questionRevision += 1;
-      this.questionRevisionById.set(questionId, this.questionRevision);
+      this.fenceQuestion(questionId);
       this.dispatch({
         type: "question.rejected",
         questionId,
@@ -1091,8 +1095,7 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
       case "permission.asked": {
         const request = extractPermissionRequest(event);
         if (request) {
-          this.permissionRevision += 1;
-          this.permissionRevisionById.set(request.id, this.permissionRevision);
+          this.fencePermission(request.id);
           this.dispatch({
             type: "permission.asked",
             request,
@@ -1108,11 +1111,7 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
             event.properties.reply === "always" ||
             event.properties.reply === "reject")
         ) {
-          this.permissionRevision += 1;
-          this.permissionRevisionById.set(
-            event.properties.requestID,
-            this.permissionRevision,
-          );
+          this.fencePermission(event.properties.requestID);
           this.dispatch({
             type: "permission.replied",
             permissionId: event.properties.requestID,
@@ -1124,8 +1123,7 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
       case "question.asked": {
         const request = extractQuestionRequest(event);
         if (request) {
-          this.questionRevision += 1;
-          this.questionRevisionById.set(request.id, this.questionRevision);
+          this.fenceQuestion(request.id);
           this.dispatch({
             type: "question.asked",
             request,
@@ -1139,11 +1137,7 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
           typeof event.properties.requestID === "string" &&
           Array.isArray(event.properties.answers)
         ) {
-          this.questionRevision += 1;
-          this.questionRevisionById.set(
-            event.properties.requestID,
-            this.questionRevision,
-          );
+          this.fenceQuestion(event.properties.requestID);
           this.dispatch({
             type: "question.replied",
             questionId: event.properties.requestID,
@@ -1154,11 +1148,7 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
 
       case "question.rejected":
         if (typeof event.properties.requestID === "string") {
-          this.questionRevision += 1;
-          this.questionRevisionById.set(
-            event.properties.requestID,
-            this.questionRevision,
-          );
+          this.fenceQuestion(event.properties.requestID);
           this.dispatch({
             type: "question.rejected",
             questionId: event.properties.requestID,
