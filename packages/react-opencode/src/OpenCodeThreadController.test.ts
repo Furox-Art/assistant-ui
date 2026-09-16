@@ -2151,6 +2151,60 @@ describe("OpenCodeThreadController", () => {
       expect(pending[id]).toBeUndefined();
     },
   );
+  it("removes a permission settled while the event stream was disconnected", async () => {
+    const eventSource = createEventSource();
+    const client = createReconnectClient();
+    const controller = new OpenCodeThreadController(
+      client as never,
+      () => eventSource,
+      "ses_1",
+    );
+    controller.subscribe(vi.fn());
+    eventSource.emit({
+      type: "permission.asked",
+      sessionId: "ses_1",
+      properties: {
+        id: "perm_1",
+        sessionID: "ses_1",
+        permission: "fs.write",
+        metadata: {},
+      },
+      raw: {},
+    });
+
+    eventSource.emit(streamReconnected);
+
+    await vi.waitFor(() => {
+      expect(
+        controller.getState().interactions.permissions.pending.perm_1,
+      ).toBeUndefined();
+    });
+  });
+
+  it("removes a question settled while the event stream was disconnected", async () => {
+    const eventSource = createEventSource();
+    const client = createReconnectClient();
+    const controller = new OpenCodeThreadController(
+      client as never,
+      () => eventSource,
+      "ses_1",
+    );
+    controller.subscribe(vi.fn());
+    eventSource.emit({
+      type: "question.asked",
+      sessionId: "ses_1",
+      properties: { id: "q_1", sessionID: "ses_1", questions: [] },
+      raw: {},
+    });
+
+    eventSource.emit(streamReconnected);
+
+    await vi.waitFor(() => {
+      expect(
+        controller.getState().interactions.questions.pending.q_1,
+      ).toBeUndefined();
+    });
+  });
 
   it.each([
     { kind: "permission", id: "perm_1" },

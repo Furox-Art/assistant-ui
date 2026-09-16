@@ -560,6 +560,8 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
       .catch(() => null)
       .then((response) => {
         if (!response || token !== this.reconnectSyncToken) return;
+        const pending: Record<string, OpenCodePermissionRequest> =
+          Object.create(null);
         for (const item of response.data ?? []) {
           const request = toPermissionRequest(item);
           if (!request || request.sessionId !== this.sessionId) continue;
@@ -569,11 +571,16 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
             permissionRevision
           )
             continue;
-          if (request.id in this.state.interactions.permissions.pending) {
-            continue;
-          }
-          this.dispatch({ type: "permission.asked", request });
+          pending[request.id] = request;
         }
+        for (const [id, request] of Object.entries(
+          this.state.interactions.permissions.pending,
+        )) {
+          if ((this.permissionRevisionById.get(id) ?? 0) > permissionRevision) {
+            pending[id] = request;
+          }
+        }
+        this.dispatch({ type: "permissions.reconciled", pending });
       });
 
     void this.client.question
@@ -581,6 +588,8 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
       .catch(() => null)
       .then((response) => {
         if (!response || token !== this.reconnectSyncToken) return;
+        const pending: Record<string, OpenCodeQuestionRequest> =
+          Object.create(null);
         for (const item of response.data ?? []) {
           const request = toQuestionRequest(item);
           if (!request || request.sessionID !== this.sessionId) continue;
@@ -589,11 +598,16 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
             (this.questionRevisionById.get(request.id) ?? 0) > questionRevision
           )
             continue;
-          if (request.id in this.state.interactions.questions.pending) {
-            continue;
-          }
-          this.dispatch({ type: "question.asked", request });
+          pending[request.id] = request;
         }
+        for (const [id, request] of Object.entries(
+          this.state.interactions.questions.pending,
+        )) {
+          if ((this.questionRevisionById.get(id) ?? 0) > questionRevision) {
+            pending[id] = request;
+          }
+        }
+        this.dispatch({ type: "questions.reconciled", pending });
       });
   }
 
