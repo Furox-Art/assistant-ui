@@ -642,10 +642,16 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
       .catch(() => null)
       .then((response) => {
         if (!response || token !== this.reconnectSyncToken) return;
-        for (const target of interactionRecoveryTargets.values()) {
+        for (const [
+          sessionId,
+          target,
+        ] of this.collectInteractionRecoveryTargets()) {
+          const initialTarget = interactionRecoveryTargets.get(sessionId);
           target.controller.reconcilePermissions(
             response.data ?? [],
-            target.interactionRevision,
+            initialTarget?.controller === target.controller
+              ? initialTarget.interactionRevision
+              : 0,
           );
         }
       });
@@ -655,10 +661,16 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
       .catch(() => null)
       .then((response) => {
         if (!response || token !== this.reconnectSyncToken) return;
-        for (const target of interactionRecoveryTargets.values()) {
+        for (const [
+          sessionId,
+          target,
+        ] of this.collectInteractionRecoveryTargets()) {
+          const initialTarget = interactionRecoveryTargets.get(sessionId);
           target.controller.reconcileQuestions(
             response.data ?? [],
-            target.interactionRevision,
+            initialTarget?.controller === target.controller
+              ? initialTarget.interactionRevision
+              : 0,
           );
         }
       });
