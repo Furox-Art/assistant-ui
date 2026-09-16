@@ -2181,6 +2181,99 @@ describe("OpenCodeThreadController", () => {
     });
   });
 
+  it.each([
+    { kind: "permission", id: "perm_1" },
+    { kind: "question", id: "q_1" },
+    { kind: "reject", id: "q_2" },
+  ] as const)(
+    "keeps a $kind answer that settles after the reconnect snapshot",
+    async ({ kind, id }) => {
+      const eventSource = createEventSource();
+      const list = createDeferred<{ data: unknown[] }>();
+      const answer = createDeferred<unknown>();
+      const isPermission = kind === "permission";
+      const base = createReconnectClient(
+        isPermission
+          ? { permissions: vi.fn().mockReturnValue(list.promise) }
+          : { questions: vi.fn().mockReturnValue(list.promise) },
+      );
+      const client = {
+        ...base,
+        permission: {
+          ...base.permission,
+          reply: vi.fn().mockReturnValue(answer.promise),
+        },
+        question: {
+          ...base.question,
+          reply: vi.fn().mockReturnValue(answer.promise),
+          reject: vi.fn().mockReturnValue(answer.promise),
+        },
+      };
+      const controller = new OpenCodeThreadController(
+        client as never,
+        () => eventSource,
+        "ses_1",
+      );
+      controller.subscribe(vi.fn());
+
+      eventSource.emit(
+        (isPermission
+          ? {
+              type: "permission.asked",
+              sessionId: "ses_1",
+              properties: {
+                id,
+                sessionID: "ses_1",
+                permission: "fs.write",
+                metadata: {},
+              },
+              raw: {},
+            }
+          : {
+              type: "question.asked",
+              sessionId: "ses_1",
+              properties: { id, sessionID: "ses_1", questions: [] },
+              raw: {},
+            }) as never,
+      );
+
+      eventSource.emit(streamReconnected);
+      await vi.waitFor(() =>
+        expect(
+          isPermission ? client.permission.list : client.question.list,
+        ).toHaveBeenCalled(),
+      );
+
+      // The user answers while the snapshot request is still in flight.
+      const answering =
+        kind === "permission"
+          ? controller.replyToPermission(id, "once" as never)
+          : kind === "question"
+            ? controller.replyToQuestion(id, [] as never)
+            : controller.rejectQuestion(id);
+
+      // The server already dropped the request, so the snapshot is empty.
+      list.resolve({ data: [] });
+      await list.promise;
+
+      answer.resolve({ data: {} });
+      await answering;
+
+      const interactions = controller.getState().interactions;
+      const settled =
+        kind === "permission"
+          ? interactions.permissions.resolved
+          : kind === "question"
+            ? interactions.questions.answered
+            : interactions.questions.rejected;
+      expect(settled[id]).toBeDefined();
+      const pending = isPermission
+        ? interactions.permissions.pending
+        : interactions.questions.pending;
+      expect(pending[id]).toBeUndefined();
+    },
+  );
+
   it("removes a question settled while the event stream was disconnected", async () => {
     const eventSource = createEventSource();
     const client = createReconnectClient();

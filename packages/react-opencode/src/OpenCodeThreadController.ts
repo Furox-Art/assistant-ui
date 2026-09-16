@@ -576,7 +576,10 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
         for (const [id, request] of Object.entries(
           this.state.interactions.permissions.pending,
         )) {
-          if ((this.permissionRevisionById.get(id) ?? 0) > permissionRevision) {
+          if (
+            (this.permissionRevisionById.get(id) ?? 0) > permissionRevision ||
+            this.repliesInFlight.has(id)
+          ) {
             pending[id] = request;
           }
         }
@@ -603,7 +606,10 @@ export class OpenCodeThreadController implements OpenCodeThreadControllerLike {
         for (const [id, request] of Object.entries(
           this.state.interactions.questions.pending,
         )) {
-          if ((this.questionRevisionById.get(id) ?? 0) > questionRevision) {
+          if (
+            (this.questionRevisionById.get(id) ?? 0) > questionRevision ||
+            this.repliesInFlight.has(id)
+          ) {
             pending[id] = request;
           }
         }
